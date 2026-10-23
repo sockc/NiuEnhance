@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Process
+import com.sockc.niuenhance.UiMenuCatalog
 
 /**
  * Records diagnostic state for an explicit broadcast from the official NIU main process.
@@ -69,8 +70,10 @@ class HookHeartbeatReceiver : BroadcastReceiver() {
                     setPackage(OFFICIAL_PACKAGE)
                     putExtra("nonce", nonce)
                     putExtra(EXTRA_VERSION, "5.19.0")
-                    putExtra("hide_zoo", settings.getBoolean("hide_zoo", false))
-                    putExtra("hide_team", settings.getBoolean("hide_team", false))
+                    putExtra("requested_labels", UiMenuCatalog.encoded(
+                        UiMenuCatalog.items.filter { settings.getBoolean(it.key, false) }
+                            .map { it.label }
+                    ))
                 }
                 val opts = android.app.BroadcastOptions.makeBasic()
                     .setShareIdentityEnabled(true).toBundle()
@@ -80,9 +83,13 @@ class HookHeartbeatReceiver : BroadcastReceiver() {
                 // Do not persist arbitrary view text, account info, locations or VIN.
                 val nodes = intent.getIntExtra("nodes", 0).coerceIn(0, 1200)
                 val labels = intent.getStringExtra("whitelisted_labels").orEmpty()
-                val allowed = listOf("NIU ZOO", "主题工坊", "我的小队", "消息通知",
-                    "我的订单", "官方社群", "意见反馈", "在线客服", "我的设备", "车币", "车况")
-                val safeLabels = allowed.filter { labels.split("、").contains(it) }
+                val safeLabels = UiMenuCatalog.observedLabels.filter {
+                    it in labels.split("、")
+                }
+                val requested = UiMenuCatalog.selected(intent.getStringExtra("menu_requested"))
+                val matched = UiMenuCatalog.selected(intent.getStringExtra("menu_matched"))
+                val attempted = UiMenuCatalog.selected(intent.getStringExtra("menu_attempted"))
+                val verified = UiMenuCatalog.selected(intent.getStringExtra("menu_verified"))
                 context.getSharedPreferences("ui_scan", Context.MODE_PRIVATE).edit()
                     .putLong("last_scan", System.currentTimeMillis())
                     .putInt("nodes", nodes)
@@ -93,11 +100,18 @@ class HookHeartbeatReceiver : BroadcastReceiver() {
                     .putInt("react_views", intent.getIntExtra("react_views", 0).coerceIn(0, 1200))
                     .putString("labels", safeLabels.joinToString("、"))
                     .putBoolean("on_my_page", intent.getBooleanExtra("on_my_page", false))
-                    .putBoolean("zoo_applied", intent.getBooleanExtra("zoo_applied", false))
-                    .putBoolean("team_applied", intent.getBooleanExtra("team_applied", false))
-                    .putBoolean("zoo_requested", intent.getBooleanExtra("zoo_requested", false))
-                    .putBoolean("team_requested", intent.getBooleanExtra("team_requested", false))
+                    .putString("menu_requested", UiMenuCatalog.encoded(requested))
+                    .putString("menu_matched", UiMenuCatalog.encoded(matched))
+                    .putString("menu_attempted", UiMenuCatalog.encoded(attempted))
+                    .putString("menu_verified", UiMenuCatalog.encoded(verified))
+                    .putBoolean("config_received", intent.getBooleanExtra("config_received", false))
                     .apply()
+                if (intent.getBooleanExtra("on_my_page", false)) {
+                    context.getSharedPreferences("ui_scan", Context.MODE_PRIVATE).edit()
+                        .putLong("last_my_scan", System.currentTimeMillis())
+                        .putString("last_my_labels", safeLabels.joinToString("、"))
+                        .apply()
+                }
             } else {
                 record("来自小牛官方 APP 的心跳已通过验证", verified = true)
             }
