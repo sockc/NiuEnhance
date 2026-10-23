@@ -14,12 +14,13 @@ import android.os.Process
 class HookHeartbeatReceiver : BroadcastReceiver() {
     companion object {
         const val ACTION = "com.sockc.niuenhance.action.HOOK_HEARTBEAT"
+        const val UI_SCAN_ACTION = "com.sockc.niuenhance.action.UI_SCAN"
         const val EXTRA_VERSION = "version"
         private const val OFFICIAL_PACKAGE = "com.niu.cloud"
     }
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != ACTION) return
+        if (intent.action != ACTION && intent.action != UI_SCAN_ACTION) return
 
         val prefs = context.getSharedPreferences("hook_status", Context.MODE_PRIVATE)
         fun record(result: String, verified: Boolean = false) {
@@ -55,7 +56,27 @@ class HookHeartbeatReceiver : BroadcastReceiver() {
                 record("拒绝：小牛 APP 版本标记不匹配")
                 return
             }
-            record("来自小牛官方 APP 的心跳已通过验证", verified = true)
+            if (intent.action == UI_SCAN_ACTION) {
+                // Only fixed, public navigation labels and numeric view-type counts.
+                // Do not persist arbitrary view text, account info, locations or VIN.
+                val nodes = intent.getIntExtra("nodes", 0).coerceIn(0, 1200)
+                val labels = intent.getStringExtra("whitelisted_labels").orEmpty()
+                val allowed = listOf("NIU ZOO", "主题工坊", "我的小队", "消息通知",
+                    "我的订单", "官方社群", "意见反馈", "在线客服", "我的设备", "车币", "车况")
+                val safeLabels = allowed.filter { labels.split("、").contains(it) }
+                context.getSharedPreferences("ui_scan", Context.MODE_PRIVATE).edit()
+                    .putLong("last_scan", System.currentTimeMillis())
+                    .putInt("nodes", nodes)
+                    .putInt("text_nodes", intent.getIntExtra("text_nodes", 0).coerceIn(0, 1200))
+                    .putInt("web_views", intent.getIntExtra("web_views", 0).coerceIn(0, 1200))
+                    .putInt("flutter_views", intent.getIntExtra("flutter_views", 0).coerceIn(0, 1200))
+                    .putInt("compose_views", intent.getIntExtra("compose_views", 0).coerceIn(0, 1200))
+                    .putInt("react_views", intent.getIntExtra("react_views", 0).coerceIn(0, 1200))
+                    .putString("labels", safeLabels.joinToString("、"))
+                    .apply()
+            } else {
+                record("来自小牛官方 APP 的心跳已通过验证", verified = true)
+            }
         } catch (t: Exception) {
             // Only the exception type is stored; no sender UID, VIN or account data.
             record("接收校验异常：" + t.javaClass.simpleName)

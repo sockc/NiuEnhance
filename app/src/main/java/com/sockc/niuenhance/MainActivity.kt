@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.sp
 import com.sockc.niuenhance.diagnostics.BluetoothInspector
 import com.sockc.niuenhance.diagnostics.MediaInspector
 import com.sockc.niuenhance.diagnostics.NiuInspector
+import com.sockc.niuenhance.diagnostics.UiScanInspector
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -46,6 +47,7 @@ private fun Dashboard() {
     var bluetoothText by remember { mutableStateOf("点击刷新检测蓝牙") }
     var musicText by remember { mutableStateOf("点击刷新检测音乐") }
     var carText by remember { mutableStateOf(NiuInspector.describe(context)) }
+    var uiScanText by remember { mutableStateOf(UiScanInspector.describe(context)) }
     val requestBluetooth = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) {
@@ -54,6 +56,7 @@ private fun Dashboard() {
 
     fun refresh() {
         carText = NiuInspector.describe(context)
+        uiScanText = UiScanInspector.describe(context)
         bluetoothText = BluetoothInspector.describe(context)
         musicText = MediaInspector.describe(context)
     }
@@ -75,6 +78,10 @@ private fun Dashboard() {
                 val intent = context.packageManager.getLaunchIntentForPackage("com.niu.cloud")
                 if (intent != null) context.startActivity(intent)
             }) { Text("打开小牛官方 APP") }
+        }
+        Block("官方 APP 页面识别（只读）") {
+            Text(uiScanText)
+            Text("V0.2 首先确认页面控件结构。隐藏 NIU ZOO、我的小队等功能尚未启用，避免误隐藏车辆控制。", style = MaterialTheme.typography.bodySmall)
         }
         Block("双蓝牙诊断") {
             Text(bluetoothText)
@@ -104,7 +111,7 @@ private fun Dashboard() {
             Text("需要系统通知使用权；不读取或上传消息内容。", style = MaterialTheme.typography.bodySmall)
         }
         Block("安全说明") {
-            Text("LSPosed 首版仅在小牛 APP 5.19.0 启动时写入本地兼容检测标记，不隐藏控件、不 Hook 车控或蓝牙钥匙。界面精简将在实机页面结构确认后逐项启用。")
+            Text("LSPosed 已验证注入；V0.2 仅扫描官方页面结构，不修改控件、不 Hook 车控或蓝牙钥匙。确认 UI 类型后才开放隐藏选项。")
             Text("所有数据保存在本机；无后台上传和远程控制。", style = MaterialTheme.typography.bodySmall)
         }
         Button(onClick = { refresh() }, modifier = Modifier.fillMaxWidth()) { Text("刷新全部状态") }

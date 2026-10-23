@@ -48,6 +48,7 @@ class NiuHook : IXposedHookLoadPackage {
                                 return
                             }
                             trace("attach version=5.19.0")
+                            UiScanHook.install(::trace)
                             // The official app doesn't declare package-visibility queries for
                             // our provider. Use only an explicit, narrowly-scoped broadcast.
                             // Receipt is verified on Android 14+ by actual sending UID.
