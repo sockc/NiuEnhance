@@ -25,6 +25,7 @@ import com.sockc.niuenhance.diagnostics.BluetoothInspector
 import com.sockc.niuenhance.diagnostics.MediaInspector
 import com.sockc.niuenhance.diagnostics.NiuInspector
 import com.sockc.niuenhance.diagnostics.UiScanInspector
+import com.sockc.niuenhance.UiMenuCatalog
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -47,10 +48,16 @@ private fun Dashboard() {
     var bluetoothText by remember { mutableStateOf("点击刷新检测蓝牙") }
     var musicText by remember { mutableStateOf("点击刷新检测音乐") }
     var carText by remember { mutableStateOf(NiuInspector.describe(context)) }
-    var uiScanText by remember { mutableStateOf(UiScanInspector.describe(context)) }
+    var uiScanText by remember { mutableStateOf(UiScanInspector.summary(context)) }
+    var uiScanDetail by remember { mutableStateOf(UiScanInspector.detail(context)) }
+    var menuLabels by remember { mutableStateOf(UiScanInspector.discovered(context)) }
+    var scanExpanded by remember { mutableStateOf(false) }
     val uiPrefs = remember { context.getSharedPreferences("ui_settings", android.content.Context.MODE_PRIVATE) }
-    var hideZoo by remember { mutableStateOf(uiPrefs.getBoolean("hide_zoo", false)) }
-    var hideTeam by remember { mutableStateOf(uiPrefs.getBoolean("hide_team", false)) }
+    val menuFlags = remember {
+        mutableStateMapOf<String, Boolean>().apply {
+            UiMenuCatalog.items.forEach { put(it.key, uiPrefs.getBoolean(it.key, false)) }
+        }
+    }
     val requestBluetooth = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) {
@@ -59,7 +66,9 @@ private fun Dashboard() {
 
     fun refresh() {
         carText = NiuInspector.describe(context)
-        uiScanText = UiScanInspector.describe(context)
+        uiScanText = UiScanInspector.summary(context)
+        uiScanDetail = UiScanInspector.detail(context)
+        menuLabels = UiScanInspector.discovered(context)
         bluetoothText = BluetoothInspector.describe(context)
         musicText = MediaInspector.describe(context)
     }
@@ -84,26 +93,46 @@ private fun Dashboard() {
         }
         Block("官方 APP 界面精简") {
             Text(uiScanText)
+            OutlinedButton(onClick = { scanExpanded = !scanExpanded }) {
+                Text(if (scanExpanded) "收起详细诊断" else "查看详细诊断")
+            }
+            if (scanExpanded) {
+                Text(uiScanDetail, style = MaterialTheme.typography.bodySmall)
+            }
             HorizontalDivider()
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("隐藏 NIU ZOO", modifier = Modifier.weight(1f))
-                Switch(checked = hideZoo, onCheckedChange = {
-                    hideZoo = it
-                    uiPrefs.edit().putBoolean("hide_zoo", it)
-                        .putLong("hide_zoo_changed_at", System.currentTimeMillis()).apply()
-                    uiScanText = UiScanInspector.describe(context)
-                })
+            Text("自动发现的可配置菜单", fontWeight = FontWeight.SemiBold)
+            val visibleMenus = UiMenuCatalog.items.filter { item ->
+                item.label in menuLabels || menuFlags[item.key] == true ||
+                    item.key == "hide_zoo" || item.key == "hide_team"
             }
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("隐藏我的小队", modifier = Modifier.weight(1f))
-                Switch(checked = hideTeam, onCheckedChange = {
-                    hideTeam = it
-                    uiPrefs.edit().putBoolean("hide_team", it)
-                        .putLong("hide_team_changed_at", System.currentTimeMillis()).apply()
-                    uiScanText = UiScanInspector.describe(context)
-                })
+            if (menuLabels.isEmpty()) {
+                Text("尚未匹配「我的」页面。保留原有两项开关，扫描成功后自动显示其他菜单。",
+                    style = MaterialTheme.typography.bodySmall)
             }
-            Text("默认关闭。仅在小牛 5.19.0 的「我的」页面识别到可独立隐藏的菜单容器时生效；识别不安全则自动跳过。修改开关后切回小牛 APP，再回来刷新结果。", style = MaterialTheme.typography.bodySmall)
+            visibleMenus.forEach { item ->
+                Row(modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(item.label)
+                        Text(UiScanInspector.menuStatus(context, item),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(checked = menuFlags[item.key] == true, onCheckedChange = { enabled ->
+                        menuFlags[item.key] = enabled
+                        uiPrefs.edit()
+                            .putBoolean(item.key, enabled)
+                            .putLong(item.key + "_changed_at", System.currentTimeMillis())
+                            .apply()
+                        uiScanText = UiScanInspector.summary(context)
+                        uiScanDetail = UiScanInspector.detail(context)
+                    })
+                }
+            }
+            Text("所有菜单默认保留。我的设备、消息通知和我的订单属于重要入口，建议保持显示。" +
+                "仅在官方 APP 5.19.0「我的」页面找到唯一、独立、安全的菜单容器时才隐藏。" +
+                "切换后重新进入官方 APP，再回来刷新确认。",
+                style = MaterialTheme.typography.bodySmall)
         }
         Block("双蓝牙诊断") {
             Text(bluetoothText)
@@ -133,7 +162,7 @@ private fun Dashboard() {
             Text("需要系统通知使用权；不读取或上传消息内容。", style = MaterialTheme.typography.bodySmall)
         }
         Block("安全说明") {
-            Text("V0.2.2 仅在「我的」页面对两个可选菜单进行严格限定的原生控件精简；找不到独立容器时跳过。不会 Hook 蓝牙钥匙、导航、动力或 OTA。")
+            Text("仅对小牛官方 APP 5.19.0「我的」页面中可单独确认的菜单进行可选隐藏。无法确认时跳过；车况、蓝牙钥匙、导航、动力和 OTA 均不修改。")
             Text("所有数据保存在本机；无后台上传和远程控制。", style = MaterialTheme.typography.bodySmall)
         }
         Button(onClick = { refresh() }, modifier = Modifier.fillMaxWidth()) { Text("刷新全部状态") }
