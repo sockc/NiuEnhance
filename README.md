@@ -1,47 +1,27 @@
 # NiuEnhance
 
-面向 **2026款小牛 FX 风速** 的安卓增强工具与 LSPosed 模块（非小牛官方产品）。
+面向 **2026款小牛 FX 风速** 的 Android 独立增强 APK + LSPosed 模块（非小牛官方产品）。
 
-**适配基准**：小牛电动 `com.niu.cloud` **5.19.0**；仪表 MTC85V14、显示 MTQ02V06、蓝牙 C22QQD06；测试目标一加15（Android 16）。
+**实测基准**：小牛 `com.niu.cloud` 5.19.0、FX 仪表 MTC85V14、显示 MTQ02V06、蓝牙 C22QQD06；一加15（Android 16）。
 
-## V0.1 实现范围
+## V0.1.2（诊断修复）
+- 双蓝牙已配对设备只读识别，显示全局 A2DP 状态（不冒充逐设备连接状态）
+- 通知使用权授权后，支持音乐标题/媒体会话和播放控制
+- LSPosed 注入入口已实测，上一版心跳 `IllegalArgumentException` 已定位为回传链路异常
+- 移除旧 ContentProvider IPC，改为显式广播；接收端验证官方小牛 UID 后记录心跳
+- Hook 仅作用于 `com.niu.cloud` 主进程，不处理 `com.niu.cloud:pushcore`
+- 不修改官方车辆管理页面、车控、蓝牙钥匙或 OTA
 
-- 一份 APK 同时包含独立管理界面及 legacy LSPosed 模块入口
-- 蓝牙诊断：只读已配对的 NIU Link 设备与全局 A2DP 状态（不冒充精确的每设备连接状态）
-- 音乐：经系统通知使用权授权后读取媒体会话、上一首/下一首/播放暂停
-- 车辆兼容性：小牛官方 APP 版本识别、LSPosed 模块启动心跳
-- LSPosed **仅做版本白名单兼容检查**，暂不隐藏原厂控件，不改车辆控制
-- GitHub Actions 自动构建 Debug APK；打 `v*` 标签后仅在已有固定签名 Secrets 时发布 Release
+## 安装测试
+1. [Actions](https://github.com/sockc/NiuEnhance/actions) 下载最新成功的 `NiuEnhance-debug`，解压 ZIP 安装。
+2. 在 LSPosed 管理器启用 NiuEnhance，作用域**只勾选** `com.niu.cloud`。
+3. 强行停止小牛官方 APP 后再启动，在 LSPosed 模块日志检查 `[NiuEnhance]`。
+4. 回到 NiuEnhance 点击「刷新全部状态」，确认心跳时间。
+5. 详细结果解释见 [诊断说明](docs/LSPOSED-TROUBLESHOOTING.md)。
 
 ## 构建
+Android SDK 36、JDK 17、Gradle 8.13，运行 `gradle :app:assembleDebug`。
+GitHub Actions 自动构建 Debug。正式发布需要在 Settings → Secrets and variables → Actions 设置固定签名的 `SIGNING_KEY_BASE64`、`KEYSTORE_PASSWORD`、`KEY_ALIAS`、`KEY_PASSWORD`。CI Debug 签名可能随 Runner 变化，不要认为可直接覆盖旧版本；需长期固定 JKS 才能保障升级。
 
-需要 Android SDK 36、JDK 17、Gradle 8.13：
-
-```bash
-gradle :app:assembleDebug
-```
-
-可直接在 GitHub Actions 的 `Android CI` 下载 Debug APK。仓库未包含 Gradle Wrapper 二进制文件，CI 使用固定版本 Gradle。
-
-## 安装与权限
-
-1. 安装 Debug APK，打开并允许「附近设备」以检测 NIU 蓝牙设备。
-2. 如需音乐控制，系统设置中为 NiuEnhance 开启「通知使用权」；本模块不读取通知内容。
-3. 如使用 LSPosed，在模块管理中启用 NiuEnhance，并且**只勾选** `com.niu.cloud`，然后重启官方 APP。
-4. 再打开 NiuEnhance 查看「上次捕获小牛启动」。如果无心跳，不代表原车异常；先检查 Hook 作用域、LSPosed 兼容性及官方 APP 版本。
-
-## 固定签名
-
-在仓库 Settings → Secrets and variables → Actions 设置：
-- `SIGNING_KEY_BASE64`：固定 JKS 的 Base64
-- `KEYSTORE_PASSWORD`
-- `KEY_ALIAS`
-- `KEY_PASSWORD`
-
-签名材料不完整时，Tag 的 Release Job 会失败，**不会上传无签名 Release APK**。同一 JKS 必须长期保留，丢失后无法覆盖升级。
-
-## 重要说明
-
-本项目尚需真机和 CI 验证；不要将 APK 当作已测试可用的正式版。不要把 Debug APK 当作将来固定签名 Release APK 的直接升级包。界面精简将在拿到官方页面的实际 View 结构后启用，避免误伤车控按钮。
-
-详见 [开发路线](docs/ROADMAP.md) 与 [安全边界](SECURITY.md)。
+## 安全边界
+不读取车辆密钥，不向车辆发送指令；不上传诊断数据；外部心跳来源经过 UID 校验。

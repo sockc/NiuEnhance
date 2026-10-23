@@ -2,7 +2,7 @@ package com.sockc.niuenhance.hook
 
 import android.app.Application
 import android.content.Context
-import android.os.Bundle
+import android.content.Intent
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
@@ -10,26 +10,27 @@ import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
 
 /**
- * V0.1.1 diagnostics-only LSPosed entry. Does not alter any NIU application state.
- * Each stage is tagged so injection failures can be distinguished from IPC failures.
+ * Safe read-only module probe. Only observes the official application's main process.
+ * An explicit broadcast replaces the ContentProvider call which failed on the test
+ * Android 16 device with IllegalArgumentException (potential provider visibility).
  */
 class NiuHook : IXposedHookLoadPackage {
-    private fun trace(stage: String) {
+    private fun trace(event: String) {
         try {
-            XposedBridge.log("[NiuEnhance] " + stage)
+            XposedBridge.log("[NiuEnhance] $event")
         } catch (_: Throwable) {
-            // Logging must not affect the official application.
+            // The hooked application must not depend on our logging.
         }
     }
 
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
         if (lpparam.packageName != "com.niu.cloud") return
-        trace("entry process=" + lpparam.processName)
+        // Do not inject additional behavior into pushcore or other secondary processes.
+        if (lpparam.processName != "com.niu.cloud") return
+        trace("entry process=com.niu.cloud")
         try {
             XposedHelpers.findAndHookMethod(
-                Application::class.java,
-                "attach",
-                Context::class.java,
+                Application::class.java, "attach", Context::class.java,
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         val ctx = param.args.firstOrNull() as? Context ?: run {
@@ -38,19 +39,26 @@ class NiuHook : IXposedHookLoadPackage {
                         }
                         try {
                             @Suppress("DEPRECATION")
-                            val version = ctx.packageManager.getPackageInfo("com.niu.cloud", 0)
-                                .versionName ?: "unknown"
+                            val version = ctx.packageManager
+                                .getPackageInfo("com.niu.cloud", 0).versionName
                             if (version != "5.19.0") {
-                                trace("version-skip version=" + version)
+                                trace("version-skip")
                                 return
                             }
-                            trace("attach version=" + version)
-                            val result = ctx.contentResolver.call(
-                                "com.sockc.niuenhance.config", "ping", null,
-                                Bundle().apply { putString("app_version", version) }
-                            )
-                            trace(if (result?.getBoolean("ok") == true) "heartbeat-ok"
-                                  else "heartbeat-no")
+                            trace("attach version=5.19.0")
+                            // The official app doesn't declare package-visibility queries for
+                            // our provider. Use only an explicit, narrowly-scoped broadcast.
+                            // Receipt is verified on Android 14+ by actual sending UID.
+                            val intent = Intent(HookHeartbeatReceiver.ACTION).apply {
+                                setClassName(
+                                    "com.sockc.niuenhance",
+                                    "com.sockc.niuenhance.hook.HookHeartbeatReceiver"
+                                )
+                                putExtra(HookHeartbeatReceiver.EXTRA_VERSION, "5.19.0")
+                            }
+                            ctx.sendBroadcast(intent)
+                            // This means submitted to OS, NOT received/accepted.
+                            trace("heartbeat-dispatched")
                         } catch (t: Throwable) {
                             trace("heartbeat-error type=" + t.javaClass.simpleName)
                         }

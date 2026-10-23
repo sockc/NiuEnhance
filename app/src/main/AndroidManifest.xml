@@ -26,13 +26,13 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
-        <provider
-            android:name=".hook.HookStatusProvider"
-            android:authorities="com.sockc.niuenhance.config"
+        <!-- Explicit receiver; validates the sending UID before accepting a heartbeat. -->
+        <receiver
+            android:name=".hook.HookHeartbeatReceiver"
             android:exported="true" />
         <meta-data android:name="xposedmodule" android:value="true" />
         <meta-data android:name="xposeddescription"
-            android:value="FX 风速增强模块（首版只读检测，不修改车辆控制）" />
+            android:value="FX 风速增强模块（只读检测，不修改车辆控制）" />
         <meta-data android:name="xposedminversion" android:value="82" />
         <meta-data android:name="xposedscope" android:value="com.niu.cloud" />
     </application>
