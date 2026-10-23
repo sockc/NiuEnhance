@@ -12,6 +12,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import android.widget.TextView
+import com.sockc.niuenhance.UiMenuCatalog
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedHelpers
 import java.util.UUID
@@ -26,12 +27,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 object UiScanHook {
     private val installed = AtomicBoolean(false)
     private const val MAX_NODES = 1200
-    private val labels = listOf("NIU ZOO", "主题工坊", "我的小队", "消息通知", "我的订单",
-        "官方社群", "意见反馈", "在线客服", "我的设备", "车币", "车况")
+    private val labels = UiMenuCatalog.observedLabels
     private val states = WeakHashMap<Activity, State>()
     private val lastAt = WeakHashMap<Activity, Long>()
 
-    private data class Flags(val zoo: Boolean = false, val team: Boolean = false)
+    private data class Flags(val selected: Set<String> = emptySet(), val received: Boolean = false)
     private class State(
         val nonce: String,
         val receiver: BroadcastReceiver,
@@ -82,11 +82,10 @@ object UiScanHook {
                 val state = states[activity] ?: return
                 if (intent.getStringExtra(HookHeartbeatReceiver.EXTRA_VERSION) != "5.19.0") return
                 state.flags = Flags(
-                    zoo = intent.getBooleanExtra("hide_zoo", false),
-                    team = intent.getBooleanExtra("hide_team", false)
+                    UiMenuCatalog.selected(intent.getStringExtra("requested_labels")),
+                    received = true
                 )
-                log("ui-config-received zoo=" + state.flags.zoo +
-                    " team=" + state.flags.team)
+                log("ui-config-received count=" + state.flags.selected.size)
                 activity.window?.decorView?.post { scan(activity, true) }
             }
         }
@@ -204,8 +203,7 @@ object UiScanHook {
             val v = stack.removeLast()
             if (v is TextView) {
                 val value = v.text?.toString()?.trim()
-                if (value in listOf("NIU ZOO", "主题工坊", "我的小队") &&
-                    value != target) return true
+                if (value in labels && value != target) return true
             }
             if (v is ViewGroup) for (i in 0 until v.childCount) stack.add(v.getChildAt(i))
         }
@@ -221,8 +219,17 @@ object UiScanHook {
             while (ancestor != null && depth++ < 6) {
                 val width = ancestor.width
                 val height = ancestor.height
-                if (width > 45 * density && width < root.width * 0.55f &&
-                    height > 24 * density && height < 110 * density &&
+                val item = UiMenuCatalog.item(target) ?: break
+                // Preserve the proven 3-column grid matching rule. Full-width
+                // list rows use a separate bounded geometry, never a card parent.
+                val geometry = if (item.grid) {
+                    width > 45 * density && width < root.width * 0.55f &&
+                        height > 24 * density && height < 110 * density
+                } else {
+                    width > root.width * 0.55f && width <= root.width &&
+                        height > 32 * density && height < 105 * density
+                }
+                if (geometry &&
                     (ancestor.isClickable ||
                      ancestor.javaClass.name.contains("TabView")) &&
                     !hasOtherTabText(ancestor, target) &&
@@ -239,27 +246,38 @@ object UiScanHook {
         return candidates.singleOrNull()
     }
 
-    private fun applyState(root: View, result: Result, state: State) {
+    private data class Applied(val matched: Set<String>, val attempted: Set<String>)
+
+    private fun applyState(root: View, result: Result, state: State): Applied {
         if (!isMyPage(result)) {
             restoreAll(state)
-            return
+            return Applied(emptySet(), emptySet())
         }
-        val settings = mapOf("NIU ZOO" to state.flags.zoo, "我的小队" to state.flags.team)
-        for ((label, enabled) in settings) {
+        val matched = linkedSetOf<String>()
+        val attempted = linkedSetOf<String>()
+        for (item in UiMenuCatalog.items) {
+            val label = item.label
             val hidden = state.hidden[label]
-            if (!enabled) {
+            if (label !in state.flags.selected) {
                 if (hidden != null) {
-                    hidden.first.visibility = hidden.second
+                    try { hidden.first.visibility = hidden.second } catch (_: Throwable) { }
                     state.hidden.remove(label)
                 }
                 continue
             }
-            if (hidden != null) continue
+            if (hidden != null && hidden.first.isAttachedToWindow) {
+                matched.add(label)
+                continue
+            }
+            if (hidden != null) state.hidden.remove(label)
             val candidate = safeTab(root, label) ?: continue
+            matched.add(label)
             if (candidate.visibility != View.VISIBLE) continue
+            attempted.add(label)
             state.hidden[label] = candidate to candidate.visibility
             candidate.visibility = View.GONE
         }
+        return Applied(matched, attempted)
     }
 
     private fun scan(activity: Activity, force: Boolean) {
@@ -271,28 +289,40 @@ object UiScanHook {
             if (!root.isAttachedToWindow) return
             val state = states[activity] ?: return
             val result = collect(root)
-            applyState(root, result, state)
+            val applied = applyState(root, result, state)
             lastAt[activity] = now
-            val intent = Intent(HookHeartbeatReceiver.UI_SCAN_ACTION).apply {
-                setClassName("com.sockc.niuenhance",
-                    "com.sockc.niuenhance.hook.HookHeartbeatReceiver")
-                putExtra(HookHeartbeatReceiver.EXTRA_VERSION, "5.19.0")
-                putExtra("nodes", result.nodes)
-                putExtra("text_nodes", result.textNodes)
-                putExtra("web_views", result.webViews)
-                putExtra("flutter_views", result.flutterViews)
-                putExtra("compose_views", result.composeViews)
-                putExtra("react_views", result.reactViews)
-                putExtra("whitelisted_labels", labels.filter { it in result.found }.joinToString("、"))
-                putExtra("on_my_page", isMyPage(result))
-                putExtra("zoo_applied", state.hidden["NIU ZOO"]?.first?.visibility == View.GONE)
-                putExtra("team_applied", state.hidden["我的小队"]?.first?.visibility == View.GONE)
-                putExtra("zoo_requested", state.flags.zoo)
-                putExtra("team_requested", state.flags.team)
+            // Inspect the actual View visibility on the next UI-loop turn after
+            // the attempted change; do not report an attempted hide as verified.
+            root.post {
+                if (states[activity] !== state || activity.isFinishing ||
+                    activity.isDestroyed || !root.isAttachedToWindow) return@post
+                try {
+                    val verified = state.hidden.filter { (_, pair) ->
+                        pair.first.isAttachedToWindow && pair.first.visibility == View.GONE
+                    }.keys
+                    val intent = Intent(HookHeartbeatReceiver.UI_SCAN_ACTION).apply {
+                        setClassName("com.sockc.niuenhance",
+                            "com.sockc.niuenhance.hook.HookHeartbeatReceiver")
+                        putExtra(HookHeartbeatReceiver.EXTRA_VERSION, "5.19.0")
+                        putExtra("nodes", result.nodes)
+                        putExtra("text_nodes", result.textNodes)
+                        putExtra("web_views", result.webViews)
+                        putExtra("flutter_views", result.flutterViews)
+                        putExtra("compose_views", result.composeViews)
+                        putExtra("react_views", result.reactViews)
+                        putExtra("whitelisted_labels", labels.filter { it in result.found }.joinToString("、"))
+                        putExtra("on_my_page", isMyPage(result))
+                        putExtra("config_received", state.flags.received)
+                        putExtra("menu_requested", UiMenuCatalog.encoded(state.flags.selected))
+                        putExtra("menu_matched", UiMenuCatalog.encoded(applied.matched))
+                        putExtra("menu_attempted", UiMenuCatalog.encoded(applied.attempted))
+                        putExtra("menu_verified", UiMenuCatalog.encoded(verified))
+                    }
+                    val opts = BroadcastOptions.makeBasic()
+                        .setShareIdentityEnabled(true).toBundle()
+                    activity.sendBroadcast(intent, null, opts)
+                } catch (_: Throwable) { }
             }
-            val opts = BroadcastOptions.makeBasic()
-                .setShareIdentityEnabled(true).toBundle()
-            activity.sendBroadcast(intent, null, opts)
         } catch (_: Throwable) {
             // Fail closed. Vehicle and navigation operations always remain official.
         }
