@@ -1,60 +1,83 @@
 package com.sockc.niuenhance.diagnostics
 
 import android.content.Context
+import com.sockc.niuenhance.UiMenuCatalog
 import java.text.DateFormat
 import java.util.Date
 
 /**
- * The hooked process reports a snapshot of the last scanned UI. A setting in our
- * own process may have changed since that snapshot, so do not mislabel stale
- * results as current or claim a disabled option was skipped.
+ * Fixed-label snapshots only. Current switches are never presented as proof of
+ * an older scan result; unverified attempts remain explicitly unverified.
  */
 object UiScanInspector {
-    private fun status(
-        configured: Boolean,
-        reported: Boolean,
-        applied: Boolean,
-        onMyPage: Boolean,
-        fresh: Boolean
-    ): String {
-        if (!fresh || configured != reported) {
-            return if (configured) "已开启，待重新进入小牛页面验证"
-                   else "已关闭，待官方页面刷新"
+    private fun scan(context: Context) =
+        context.getSharedPreferences("ui_scan", Context.MODE_PRIVATE)
+    private fun settings(context: Context) =
+        context.getSharedPreferences("ui_settings", Context.MODE_PRIVATE)
+
+    fun discovered(context: Context): Set<String> =
+        UiMenuCatalog.selected(scan(context).getString("last_my_labels", ""))
+
+    fun configuredCount(context: Context): Int =
+        UiMenuCatalog.items.count { settings(context).getBoolean(it.key, false) }
+
+    fun menuStatus(context: Context, item: UiMenuCatalog.Item): String {
+        val config = settings(context)
+        val p = scan(context)
+        if (!config.getBoolean(item.key, false)) return "保留显示"
+        val whenScanned = p.getLong("last_scan", 0L)
+        if (whenScanned == 0L ||
+            whenScanned < config.getLong(item.key + "_changed_at", 0L) ||
+            !p.getBoolean("config_received", false) ||
+            item.label !in UiMenuCatalog.selected(p.getString("menu_requested", ""))
+        ) return "待重新进入小牛验证"
+        if (!p.getBoolean("on_my_page", false)) return "待扫描「我的」页面"
+        if (item.label in UiMenuCatalog.selected(p.getString("menu_verified", ""))) {
+            return "已隐藏 · 复查通过"
         }
-        if (!configured) return "已关闭"
-        if (applied) return "已隐藏"
-        return if (onMyPage) "未找到安全容器，已跳过" else "待扫描「我的」页面"
+        if (item.label in UiMenuCatalog.selected(p.getString("menu_attempted", ""))) {
+            return "已执行隐藏 · 复查未通过"
+        }
+        if (item.label in UiMenuCatalog.selected(p.getString("menu_matched", ""))) {
+            return "已匹配 · 未执行隐藏"
+        }
+        return "未找到安全的独立容器 · 已跳过"
     }
 
-    fun describe(context: Context): String {
-        val p = context.getSharedPreferences("ui_scan", Context.MODE_PRIVATE)
-        val config = context.getSharedPreferences("ui_settings", Context.MODE_PRIVATE)
-        val whenScanned = p.getLong("last_scan", 0L)
-        if (whenScanned == 0L) {
-            return "尚未识别页面。请重新进入小牛 APP 的「我的」页面，再回来刷新。"
+    fun summary(context: Context): String {
+        val p = scan(context)
+        val last = p.getLong("last_scan", 0L)
+        val known = discovered(context)
+        if (last == 0L) {
+            return "尚无页面扫描记录。进入小牛官方 APP 的「我的」页面后即可自动发现可配置菜单。"
         }
-        val date = DateFormat.getDateTimeInstance().format(Date(whenScanned))
+        val verified = UiMenuCatalog.selected(p.getString("menu_verified", ""))
+        val enabled = UiMenuCatalog.items.filter { settings(context).getBoolean(it.key, false) }
+        val confirmed = enabled.count { menuStatus(context, it) == "已隐藏 · 复查通过" }
+        val date = DateFormat.getDateTimeInstance().format(Date(last))
+        return "已发现 ${known.size} 项菜单 · 已开启 ${enabled.size} 项隐藏 · 复查成功 $confirmed 项\n" +
+            "最近扫描：$date" +
+            if (!p.getBoolean("on_my_page", false)) "（非「我的」页面）" else ""
+    }
+
+    fun detail(context: Context): String {
+        val p = scan(context)
+        val last = p.getLong("last_scan", 0L)
+        if (last == 0L) return "尚无扫描记录。"
+        val date = DateFormat.getDateTimeInstance().format(Date(last))
         val labels = p.getString("labels", "").orEmpty()
-        val onMyPage = p.getBoolean("on_my_page", false)
-        val zooStatus = status(
-            configured = config.getBoolean("hide_zoo", false),
-            reported = p.getBoolean("zoo_requested", false),
-            applied = p.getBoolean("zoo_applied", false),
-            onMyPage = onMyPage,
-            fresh = whenScanned >= config.getLong("hide_zoo_changed_at", 0L)
-        )
-        val teamStatus = status(
-            configured = config.getBoolean("hide_team", false),
-            reported = p.getBoolean("team_requested", false),
-            applied = p.getBoolean("team_applied", false),
-            onMyPage = onMyPage,
-            fresh = whenScanned >= config.getLong("hide_team_changed_at", 0L)
-        )
-        return "上次扫描：$date\n" +
-            "页面节点：${p.getInt("nodes", 0)}；原生文字节点：${p.getInt("text_nodes", 0)}\n" +
-            "WebView：${p.getInt("web_views", 0)}；Flutter：${p.getInt("flutter_views", 0)}；Compose：${p.getInt("compose_views", 0)}；React：${p.getInt("react_views", 0)}\n" +
-            "页面结构包含的菜单（含已隐藏控件）：${if (labels.isBlank()) "未匹配" else labels}\n" +
-            "菜单隐藏：NIU ZOO $zooStatus；我的小队 $teamStatus\n" +
-            "开关以当前配置为准，隐藏结果以最近一次官方页面扫描为准。"
+        val matched = UiMenuCatalog.selected(p.getString("menu_matched", ""))
+        val attempted = UiMenuCatalog.selected(p.getString("menu_attempted", ""))
+        val verified = UiMenuCatalog.selected(p.getString("menu_verified", ""))
+        return "扫描：$date\n" +
+            "页面节点 ${p.getInt("nodes", 0)} · 文字节点 ${p.getInt("text_nodes", 0)}\n" +
+            "WebView ${p.getInt("web_views", 0)} · Flutter ${p.getInt("flutter_views", 0)} · Compose ${p.getInt("compose_views", 0)} · React ${p.getInt("react_views", 0)}\n" +
+            "页面识别：${if (p.getBoolean("on_my_page", false)) "我的" else "其他页面或未匹配"}\n" +
+            "固定菜单标签：${if (labels.isEmpty()) "未匹配" else labels}\n" +
+            "配置已读取：${if (p.getBoolean("config_received", false)) "是" else "否"}\n" +
+            "找到独立容器：${if (matched.isEmpty()) "无" else UiMenuCatalog.encoded(matched)}\n" +
+            "已尝试隐藏：${if (attempted.isEmpty()) "无" else UiMenuCatalog.encoded(attempted)}\n" +
+            "复查仍为隐藏：${if (verified.isEmpty()) "无" else UiMenuCatalog.encoded(verified)}\n" +
+            "仅记录固定公开菜单名称与控件数量，不保存任意页面文字。"
     }
 }
