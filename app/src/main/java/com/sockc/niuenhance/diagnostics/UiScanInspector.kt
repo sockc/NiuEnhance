@@ -5,27 +5,56 @@ import java.text.DateFormat
 import java.util.Date
 
 /**
- * Displays only the whitelist-based, read-only UI signature.
- * A screenshot alone cannot determine whether NIU uses WebView, Flutter or native views.
+ * The hooked process reports a snapshot of the last scanned UI. A setting in our
+ * own process may have changed since that snapshot, so do not mislabel stale
+ * results as current or claim a disabled option was skipped.
  */
 object UiScanInspector {
-    private fun status(requested: Boolean, applied: Boolean, myPage: Boolean): String =
-        if (applied) "已隐藏" else if (!requested) "关闭" else if (!myPage) "待进入「我的」页面" else "未找到安全容器，已跳过"
+    private fun status(
+        configured: Boolean,
+        reported: Boolean,
+        applied: Boolean,
+        onMyPage: Boolean,
+        fresh: Boolean
+    ): String {
+        if (!fresh || configured != reported) {
+            return if (configured) "已开启，待重新进入小牛页面验证"
+                   else "已关闭，待官方页面刷新"
+        }
+        if (!configured) return "已关闭"
+        if (applied) return "已隐藏"
+        return if (onMyPage) "未找到安全容器，已跳过" else "待扫描「我的」页面"
+    }
 
     fun describe(context: Context): String {
         val p = context.getSharedPreferences("ui_scan", Context.MODE_PRIVATE)
+        val config = context.getSharedPreferences("ui_settings", Context.MODE_PRIVATE)
         val whenScanned = p.getLong("last_scan", 0L)
         if (whenScanned == 0L) {
-            return "尚未识别页面。请保持 NiuEnhance 的 LSPosed 作用域，重新启动小牛官方 APP，依次打开「车况」和「我的」，然后回来刷新。"
+            return "尚未识别页面。请重新进入小牛 APP 的「我的」页面，再回来刷新。"
         }
         val date = DateFormat.getDateTimeInstance().format(Date(whenScanned))
         val labels = p.getString("labels", "").orEmpty()
+        val onMyPage = p.getBoolean("on_my_page", false)
+        val zooStatus = status(
+            configured = config.getBoolean("hide_zoo", false),
+            reported = p.getBoolean("zoo_requested", false),
+            applied = p.getBoolean("zoo_applied", false),
+            onMyPage = onMyPage,
+            fresh = whenScanned >= config.getLong("hide_zoo_changed_at", 0L)
+        )
+        val teamStatus = status(
+            configured = config.getBoolean("hide_team", false),
+            reported = p.getBoolean("team_requested", false),
+            applied = p.getBoolean("team_applied", false),
+            onMyPage = onMyPage,
+            fresh = whenScanned >= config.getLong("hide_team_changed_at", 0L)
+        )
         return "上次扫描：$date\n" +
             "页面节点：${p.getInt("nodes", 0)}；原生文字节点：${p.getInt("text_nodes", 0)}\n" +
             "WebView：${p.getInt("web_views", 0)}；Flutter：${p.getInt("flutter_views", 0)}；Compose：${p.getInt("compose_views", 0)}；React：${p.getInt("react_views", 0)}\n" +
-            "识别到的公开菜单：${if (labels.isBlank()) "未匹配" else labels}\n" +
-            "菜单隐藏：NIU ZOO " + status(p.getBoolean("zoo_requested", false), p.getBoolean("zoo_applied", false), p.getBoolean("on_my_page", false)) +
-            "；我的小队 " + status(p.getBoolean("team_requested", false), p.getBoolean("team_applied", false), p.getBoolean("on_my_page", false)) +
-            "\n仅采集固定菜单标签与节点数量；不读取账号或车辆信息。"
+            "页面结构包含的菜单（含已隐藏控件）：${if (labels.isBlank()) "未匹配" else labels}\n" +
+            "菜单隐藏：NIU ZOO $zooStatus；我的小队 $teamStatus\n" +
+            "开关以当前配置为准，隐藏结果以最近一次官方页面扫描为准。"
     }
 }

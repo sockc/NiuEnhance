@@ -89,14 +89,18 @@ private fun Dashboard() {
                 Text("隐藏 NIU ZOO", modifier = Modifier.weight(1f))
                 Switch(checked = hideZoo, onCheckedChange = {
                     hideZoo = it
-                    uiPrefs.edit().putBoolean("hide_zoo", it).apply()
+                    uiPrefs.edit().putBoolean("hide_zoo", it)
+                        .putLong("hide_zoo_changed_at", System.currentTimeMillis()).apply()
+                    uiScanText = UiScanInspector.describe(context)
                 })
             }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("隐藏我的小队", modifier = Modifier.weight(1f))
                 Switch(checked = hideTeam, onCheckedChange = {
                     hideTeam = it
-                    uiPrefs.edit().putBoolean("hide_team", it).apply()
+                    uiPrefs.edit().putBoolean("hide_team", it)
+                        .putLong("hide_team_changed_at", System.currentTimeMillis()).apply()
+                    uiScanText = UiScanInspector.describe(context)
                 })
             }
             Text("默认关闭。仅在小牛 5.19.0 的「我的」页面识别到可独立隐藏的菜单容器时生效；识别不安全则自动跳过。修改开关后切回小牛 APP，再回来刷新结果。", style = MaterialTheme.typography.bodySmall)
@@ -129,7 +133,7 @@ private fun Dashboard() {
             Text("需要系统通知使用权；不读取或上传消息内容。", style = MaterialTheme.typography.bodySmall)
         }
         Block("安全说明") {
-            Text("V0.2.1 仅在「我的」页面对两个可选菜单进行严格限定的原生控件精简；找不到独立容器时跳过。不会 Hook 蓝牙钥匙、导航、动力或 OTA。")
+            Text("V0.2.2 仅在「我的」页面对两个可选菜单进行严格限定的原生控件精简；找不到独立容器时跳过。不会 Hook 蓝牙钥匙、导航、动力或 OTA。")
             Text("所有数据保存在本机；无后台上传和远程控制。", style = MaterialTheme.typography.bodySmall)
         }
         Button(onClick = { refresh() }, modifier = Modifier.fillMaxWidth()) { Text("刷新全部状态") }
