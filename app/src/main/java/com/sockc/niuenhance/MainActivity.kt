@@ -28,18 +28,25 @@ import com.sockc.niuenhance.diagnostics.UiScanInspector
 import com.sockc.niuenhance.UiMenuCatalog
 
 class MainActivity : ComponentActivity() {
+    private var resumeCounter by mutableIntStateOf(0)
+
+    override fun onResume() {
+        super.onResume()
+        resumeCounter++
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
-                Dashboard()
+                Dashboard(resumeCounter)
             }
         }
     }
 }
 
 @Composable
-private fun Dashboard() {
+private fun Dashboard(resumeCounter: Int) {
     val context = LocalContext.current
     @Suppress("DEPRECATION")
     val installedVersion = remember {
@@ -73,7 +80,7 @@ private fun Dashboard() {
         musicText = MediaInspector.describe(context)
     }
 
-    LaunchedEffect(Unit) { refresh() }
+    LaunchedEffect(resumeCounter) { refresh() }
 
     Column(
         modifier = Modifier.fillMaxSize()
