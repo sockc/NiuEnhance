@@ -48,6 +48,9 @@ private fun Dashboard() {
     var musicText by remember { mutableStateOf("点击刷新检测音乐") }
     var carText by remember { mutableStateOf(NiuInspector.describe(context)) }
     var uiScanText by remember { mutableStateOf(UiScanInspector.describe(context)) }
+    val uiPrefs = remember { context.getSharedPreferences("ui_settings", android.content.Context.MODE_PRIVATE) }
+    var hideZoo by remember { mutableStateOf(uiPrefs.getBoolean("hide_zoo", false)) }
+    var hideTeam by remember { mutableStateOf(uiPrefs.getBoolean("hide_team", false)) }
     val requestBluetooth = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) {
@@ -79,9 +82,24 @@ private fun Dashboard() {
                 if (intent != null) context.startActivity(intent)
             }) { Text("打开小牛官方 APP") }
         }
-        Block("官方 APP 页面识别（只读）") {
+        Block("官方 APP 界面精简") {
             Text(uiScanText)
-            Text("V0.2 首先确认页面控件结构。隐藏 NIU ZOO、我的小队等功能尚未启用，避免误隐藏车辆控制。", style = MaterialTheme.typography.bodySmall)
+            HorizontalDivider()
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("隐藏 NIU ZOO", modifier = Modifier.weight(1f))
+                Switch(checked = hideZoo, onCheckedChange = {
+                    hideZoo = it
+                    uiPrefs.edit().putBoolean("hide_zoo", it).apply()
+                })
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("隐藏我的小队", modifier = Modifier.weight(1f))
+                Switch(checked = hideTeam, onCheckedChange = {
+                    hideTeam = it
+                    uiPrefs.edit().putBoolean("hide_team", it).apply()
+                })
+            }
+            Text("默认关闭。仅在小牛 5.19.0 的「我的」页面识别到可独立隐藏的菜单容器时生效；识别不安全则自动跳过。修改开关后切回小牛 APP，再回来刷新结果。", style = MaterialTheme.typography.bodySmall)
         }
         Block("双蓝牙诊断") {
             Text(bluetoothText)
@@ -111,7 +129,7 @@ private fun Dashboard() {
             Text("需要系统通知使用权；不读取或上传消息内容。", style = MaterialTheme.typography.bodySmall)
         }
         Block("安全说明") {
-            Text("LSPosed 已验证注入；V0.2 仅扫描官方页面结构，不修改控件、不 Hook 车控或蓝牙钥匙。确认 UI 类型后才开放隐藏选项。")
+            Text("V0.2.1 仅在「我的」页面对两个可选菜单进行严格限定的原生控件精简；找不到独立容器时跳过。不会 Hook 蓝牙钥匙、导航、动力或 OTA。")
             Text("所有数据保存在本机；无后台上传和远程控制。", style = MaterialTheme.typography.bodySmall)
         }
         Button(onClick = { refresh() }, modifier = Modifier.fillMaxWidth()) { Text("刷新全部状态") }

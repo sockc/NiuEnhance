@@ -15,12 +15,15 @@ class HookHeartbeatReceiver : BroadcastReceiver() {
     companion object {
         const val ACTION = "com.sockc.niuenhance.action.HOOK_HEARTBEAT"
         const val UI_SCAN_ACTION = "com.sockc.niuenhance.action.UI_SCAN"
+        const val CONFIG_REQUEST_ACTION = "com.sockc.niuenhance.action.CONFIG_REQUEST"
+        const val CONFIG_REPLY_ACTION = "com.sockc.niuenhance.action.CONFIG_REPLY"
         const val EXTRA_VERSION = "version"
         private const val OFFICIAL_PACKAGE = "com.niu.cloud"
     }
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != ACTION && intent.action != UI_SCAN_ACTION) return
+        if (intent.action != ACTION && intent.action != UI_SCAN_ACTION &&
+            intent.action != CONFIG_REQUEST_ACTION) return
 
         val prefs = context.getSharedPreferences("hook_status", Context.MODE_PRIVATE)
         fun record(result: String, verified: Boolean = false) {
@@ -56,7 +59,23 @@ class HookHeartbeatReceiver : BroadcastReceiver() {
                 record("拒绝：小牛 APP 版本标记不匹配")
                 return
             }
-            if (intent.action == UI_SCAN_ACTION) {
+            if (intent.action == CONFIG_REQUEST_ACTION) {
+                // Only a verified com.niu.cloud sender can request the small UI flags.
+                val nonce = intent.getStringExtra("nonce").orEmpty()
+                if (nonce.length !in 32..50 ||
+                    !nonce.all { it.isDigit() || it in 'a'..'f' || it == '-' }) return
+                val settings = context.getSharedPreferences("ui_settings", Context.MODE_PRIVATE)
+                val reply = Intent(CONFIG_REPLY_ACTION).apply {
+                    setPackage(OFFICIAL_PACKAGE)
+                    putExtra("nonce", nonce)
+                    putExtra(EXTRA_VERSION, "5.19.0")
+                    putExtra("hide_zoo", settings.getBoolean("hide_zoo", false))
+                    putExtra("hide_team", settings.getBoolean("hide_team", false))
+                }
+                val opts = android.app.BroadcastOptions.makeBasic()
+                    .setShareIdentityEnabled(true).toBundle()
+                context.sendBroadcast(reply, null, opts)
+            } else if (intent.action == UI_SCAN_ACTION) {
                 // Only fixed, public navigation labels and numeric view-type counts.
                 // Do not persist arbitrary view text, account info, locations or VIN.
                 val nodes = intent.getIntExtra("nodes", 0).coerceIn(0, 1200)
@@ -73,6 +92,11 @@ class HookHeartbeatReceiver : BroadcastReceiver() {
                     .putInt("compose_views", intent.getIntExtra("compose_views", 0).coerceIn(0, 1200))
                     .putInt("react_views", intent.getIntExtra("react_views", 0).coerceIn(0, 1200))
                     .putString("labels", safeLabels.joinToString("、"))
+                    .putBoolean("on_my_page", intent.getBooleanExtra("on_my_page", false))
+                    .putBoolean("zoo_applied", intent.getBooleanExtra("zoo_applied", false))
+                    .putBoolean("team_applied", intent.getBooleanExtra("team_applied", false))
+                    .putBoolean("zoo_requested", intent.getBooleanExtra("zoo_requested", false))
+                    .putBoolean("team_requested", intent.getBooleanExtra("team_requested", false))
                     .apply()
             } else {
                 record("来自小牛官方 APP 的心跳已通过验证", verified = true)
