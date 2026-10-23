@@ -50,7 +50,13 @@ object UiScanHook {
                         if (activity.packageName != "com.niu.cloud" ||
                             Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return
                         if (!states.containsKey(activity)) attach(activity, log)
-                        activity.window?.decorView?.postDelayed({ scan(activity, true) }, 500L)
+                        // Re-scan after asynchronous menu inflation: a single
+                        // early layout can expose a partial (e.g. 106-node) tree.
+                        activity.window?.decorView?.apply {
+                            postDelayed({ scan(activity, true) }, 500L)
+                            postDelayed({ scan(activity, true) }, 1800L)
+                            postDelayed({ scan(activity, true) }, 3200L)
+                        }
                     } catch (t: Throwable) {
                         log("ui-attach-error type=" + t.javaClass.simpleName)
                     }
