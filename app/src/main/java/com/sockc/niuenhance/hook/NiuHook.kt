@@ -1,6 +1,8 @@
 package com.sockc.niuenhance.hook
 
 import android.app.Application
+import android.app.BroadcastOptions
+import android.os.Build
 import android.content.Context
 import android.content.Intent
 import de.robv.android.xposed.IXposedHookLoadPackage
@@ -11,8 +13,8 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage
 
 /**
  * Safe read-only module probe. Only observes the official application's main process.
- * An explicit broadcast replaces the ContentProvider call which failed on the test
- * Android 16 device with IllegalArgumentException (potential provider visibility).
+ * Explicit, UID-authenticated Android 14+ broadcast for the read-only module
+ * heartbeat. Android's identity sharing must be requested by the sender.
  */
 class NiuHook : IXposedHookLoadPackage {
     private fun trace(event: String) {
@@ -56,9 +58,18 @@ class NiuHook : IXposedHookLoadPackage {
                                 )
                                 putExtra(HookHeartbeatReceiver.EXTRA_VERSION, "5.19.0")
                             }
-                            ctx.sendBroadcast(intent)
-                            // This means submitted to OS, NOT received/accepted.
-                            trace("heartbeat-dispatched")
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                                // Android 14+ defaults sender identity sharing to false.
+                                // Without this flag, getSentFromUid() rejects our heartbeat.
+                                val opts = BroadcastOptions.makeBasic()
+                                    .setShareIdentityEnabled(true)
+                                    .toBundle()
+                                ctx.sendBroadcast(intent, null, opts)
+                                trace("heartbeat-dispatched identity-shared")
+                            } else {
+                                // Receiver intentionally fails closed on older Android.
+                                trace("heartbeat-unsupported-android")
+                            }
                         } catch (t: Throwable) {
                             trace("heartbeat-error type=" + t.javaClass.simpleName)
                         }

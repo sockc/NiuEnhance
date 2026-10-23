@@ -39,6 +39,10 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun Dashboard() {
     val context = LocalContext.current
+    @Suppress("DEPRECATION")
+    val installedVersion = remember {
+        context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "未知"
+    }
     var bluetoothText by remember { mutableStateOf("点击刷新检测蓝牙") }
     var musicText by remember { mutableStateOf("点击刷新检测音乐") }
     var carText by remember { mutableStateOf(NiuInspector.describe(context)) }
@@ -64,7 +68,7 @@ private fun Dashboard() {
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Text("NiuEnhance", fontSize = 27.sp, fontWeight = FontWeight.Bold)
-        Text("2026 FX 风速 · V0.1 诊断版", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("2026 FX 风速 · V$installedVersion 诊断版", color = MaterialTheme.colorScheme.onSurfaceVariant)
         Block("车辆与兼容性") {
             Text(carText)
             OutlinedButton(onClick = {
