@@ -10,8 +10,8 @@ import kotlin.math.min
 import kotlin.math.sin
 
 /**
- * Manually triggered 3-second test tone, 440Hz, -13dBFS peak. Always starts at
- * fixed conservative signal amplitude and never increases the system volume.
+ * Manually triggered 3-second 440Hz tone. User chooses -13/-7/-4dBFS peak
+ * without going to digital full-scale and without changing system volume.
  * Not intended for use while riding. No recording or telemetry.
  */
 object AudioToneTest {
@@ -21,7 +21,13 @@ object AudioToneTest {
 
     fun isActive(): Boolean = active.get()
 
-    fun start(onDone: (String) -> Unit): Boolean {
+    fun start(level: Int, onDone: (String) -> Unit): Boolean {
+        val peak = when (level) {
+            0 -> 0.22 // approx -13 dBFS
+            1 -> 0.45 // approx -7 dBFS
+            2 -> 0.63 // approx -4 dBFS
+            else -> return false
+        }
         if (!active.compareAndSet(false, true)) return false
         cancelRequested.set(false)
         thread(name = "niu-audio-tone", isDaemon = true) {
@@ -61,7 +67,7 @@ object AudioToneTest {
                             1.0, i.toDouble() / fadeFrames,
                             (total - i).toDouble() / fadeFrames
                         ).coerceAtLeast(0.0)
-                        (Short.MAX_VALUE * 0.22 * fade *
+                        (Short.MAX_VALUE * peak * fade *
                             sin(2.0 * PI * 440.0 * i / rate)).toInt().toShort()
                     }
                     var written = 0
