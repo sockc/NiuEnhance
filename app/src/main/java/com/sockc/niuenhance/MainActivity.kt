@@ -23,6 +23,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sockc.niuenhance.diagnostics.BluetoothInspector
 import com.sockc.niuenhance.diagnostics.MediaInspector
+import com.sockc.niuenhance.diagnostics.AudioRouteInspector
+import com.sockc.niuenhance.diagnostics.AudioToneTest
 import com.sockc.niuenhance.diagnostics.NiuInspector
 import com.sockc.niuenhance.diagnostics.UiScanInspector
 import com.sockc.niuenhance.UiMenuCatalog
@@ -54,6 +56,9 @@ private fun Dashboard(resumeCounter: Int) {
     }
     var bluetoothText by remember { mutableStateOf("点击刷新检测蓝牙") }
     var musicText by remember { mutableStateOf("点击刷新检测音乐") }
+    var audioRouteText by remember { mutableStateOf(AudioRouteInspector.describe(context)) }
+    var testToneText by remember { mutableStateOf("尚未测试 · 仅在停车时使用") }
+    var playingTest by remember { mutableStateOf(AudioToneTest.isActive()) }
     var carText by remember { mutableStateOf(NiuInspector.describe(context)) }
     var uiScanText by remember { mutableStateOf(UiScanInspector.summary(context)) }
     var uiScanDetail by remember { mutableStateOf(UiScanInspector.detail(context)) }
@@ -78,9 +83,13 @@ private fun Dashboard(resumeCounter: Int) {
         menuLabels = UiScanInspector.discovered(context)
         bluetoothText = BluetoothInspector.describe(context)
         musicText = MediaInspector.describe(context)
+        audioRouteText = AudioRouteInspector.describe(context)
     }
 
     LaunchedEffect(resumeCounter) { refresh() }
+    DisposableEffect(Unit) {
+        onDispose { AudioToneTest.stop() }
+    }
 
     Column(
         modifier = Modifier.fillMaxSize()
@@ -97,6 +106,37 @@ private fun Dashboard(resumeCounter: Int) {
                 val intent = context.packageManager.getLaunchIntentForPackage("com.niu.cloud")
                 if (intent != null) context.startActivity(intent)
             }) { Text("打开小牛官方 APP") }
+        }
+        Block("原车音响诊断 · 优先排查") {
+            Text(audioRouteText)
+            Text("先连接 NIU Link 多媒体蓝牙，停车时测试。测试音走正常媒体音频链路，并不解除原车功放限幅。",
+                style = MaterialTheme.typography.bodySmall)
+            Text(testToneText, style = MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(enabled = !playingTest, onClick = {
+                    audioRouteText = AudioRouteInspector.describe(context)
+                    if (!AudioRouteInspector.hasBluetoothMediaRoute(context)) {
+                        testToneText = "当前未检测到蓝牙媒体输出，请先连接 FX 多媒体蓝牙并开始播放音乐。"
+                    } else {
+                        testToneText = "准备播放 440Hz、3秒固定低电平测试音。确保车辆停车，先暂停其他音乐。"
+                        playingTest = AudioToneTest.start { result ->
+                            (context as? android.app.Activity)?.runOnUiThread {
+                                playingTest = false
+                                testToneText = result + "。请比较与音乐播放的响度。"
+                            }
+                        }
+                    }
+                }) { Text("播放3秒测试音") }
+                OutlinedButton(enabled = playingTest, onClick = {
+                    AudioToneTest.stop()
+                    testToneText = "正在停止测试音"
+                }) { Text("停止") }
+            }
+            OutlinedButton(onClick = {
+                audioRouteText = AudioRouteInspector.describe(context)
+            }) { Text("刷新音频路由") }
+            Text("安全说明：测试信号峰值约 -13 dBFS，不自动提高系统音量。若提示音与测试音均明显偏小，需重点检查原车功放/扬声器；NiuEnhance 无法直接提高车辆本身的提示音。",
+                style = MaterialTheme.typography.bodySmall)
         }
         Block("官方 APP 界面精简") {
             Text(uiScanText)
