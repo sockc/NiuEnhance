@@ -69,6 +69,7 @@ object UiScanInspector {
         val matched = UiMenuCatalog.selected(p.getString("menu_matched", ""))
         val attempted = UiMenuCatalog.selected(p.getString("menu_attempted", ""))
         val verified = UiMenuCatalog.selected(p.getString("menu_verified", ""))
+        val invisible = UiMenuCatalog.selected(p.getString("menu_invisible", ""))
         return "扫描：$date\n" +
             "页面节点 ${p.getInt("nodes", 0)} · 文字节点 ${p.getInt("text_nodes", 0)}\n" +
             "WebView ${p.getInt("web_views", 0)} · Flutter ${p.getInt("flutter_views", 0)} · Compose ${p.getInt("compose_views", 0)} · React ${p.getInt("react_views", 0)}\n" +
@@ -77,6 +78,7 @@ object UiScanInspector {
             "配置已读取：${if (p.getBoolean("config_received", false)) "是" else "否"}\n" +
             "找到独立容器：${if (matched.isEmpty()) "无" else UiMenuCatalog.encoded(matched)}\n" +
             "已尝试隐藏：${if (attempted.isEmpty()) "无" else UiMenuCatalog.encoded(attempted)}\n" +
+            "目标原本不可见：${if (invisible.isEmpty()) "无" else UiMenuCatalog.encoded(invisible)}\n" +
             "复查仍为隐藏：${if (verified.isEmpty()) "无" else UiMenuCatalog.encoded(verified)}\n" +
             "仅记录固定公开菜单名称与控件数量，不保存任意页面文字。"
     }

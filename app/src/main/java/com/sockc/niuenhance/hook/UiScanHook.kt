@@ -216,51 +216,86 @@ object UiScanHook {
         return false
     }
 
+    /**
+     * A list item is safe to isolate when at least two other rows at the SAME
+     * hierarchy level contain distinct, known list menu labels. This supports
+     * NIU layouts where the row itself isn't clickable, but an internal view is.
+     * Never treat an entire card or menu group as an independent row.
+     */
+    private fun hasIndependentRowSiblings(row: ViewGroup, root: View, target: String): Boolean {
+        val parent = row.parent as? ViewGroup ?: return false
+        if (parent.childCount !in 3..30) return false
+        val density = root.resources.displayMetrics.density
+        val otherLabels = UiMenuCatalog.items.filter { !it.grid && it.label != target }
+        var peers = 0
+        for (i in 0 until parent.childCount) {
+            val sibling = parent.getChildAt(i) as? ViewGroup ?: continue
+            if (sibling === row || !sibling.isAttachedToWindow) continue
+            if (sibling.width <= root.width * 0.55f || sibling.width > root.width ||
+                sibling.height < 32 * density || sibling.height > 115 * density) continue
+            val found = otherLabels.filter { menuLeaves(sibling, it.label).size == 1 }
+            if (found.size == 1 && !hasOtherTabText(sibling, found.single().label)) {
+                peers++
+                if (peers >= 2) return true
+            }
+        }
+        return false
+    }
+
     private fun safeTab(root: View, target: String): View? {
         val density = root.resources.displayMetrics.density
+        val item = UiMenuCatalog.item(target) ?: return null
         val candidates = mutableListOf<View>()
-        for (leaf in menuLeaves(root, target)) {
+        val leaves = menuLeaves(root, target)
+        if (leaves.size != 1) return null
+        for (leaf in leaves) {
             var ancestor = leaf.parent as? ViewGroup
             var depth = 0
-            while (ancestor != null && depth++ < 6) {
+            while (ancestor != null && depth++ < 9) {
                 val width = ancestor.width
                 val height = ancestor.height
-                val item = UiMenuCatalog.item(target) ?: break
-                // Preserve the proven 3-column grid matching rule. Full-width
-                // list rows use a separate bounded geometry, never a card parent.
                 val geometry = if (item.grid) {
                     width > 45 * density && width < root.width * 0.55f &&
                         height > 24 * density && height < 110 * density
                 } else {
                     width > root.width * 0.55f && width <= root.width &&
-                        height > 32 * density && height < 105 * density
+                        height > 32 * density && height < 115 * density
                 }
-                if (geometry &&
-                    (ancestor.isClickable ||
-                     ancestor.javaClass.name.contains("TabView")) &&
-                    !hasOtherTabText(ancestor, target) &&
-                    ancestor.parent is ViewGroup &&
-                    (ancestor.parent as ViewGroup).childCount >= 2
-                ) {
-                    candidates.add(ancestor)
-                    break
+                if (geometry && !hasOtherTabText(ancestor, target) &&
+                    ancestor.parent is ViewGroup) {
+                    val parent = ancestor.parent as ViewGroup
+                    val safeParent = parent.childCount >= 2
+                    val clickable = ancestor.isClickable ||
+                        ancestor.javaClass.name.contains("TabView")
+                    val isolatedRow = !item.grid &&
+                        hasIndependentRowSiblings(ancestor, root, target)
+                    // Grid behavior is unchanged. List rows need verified peers,
+                    // whether clickable or not; clicks alone aren't enough.
+                    if (safeParent && (if (item.grid) clickable else isolatedRow)) {
+                        candidates.add(ancestor)
+                        break
+                    }
                 }
                 ancestor = ancestor.parent as? ViewGroup
             }
         }
-        // Duplicate labels are ambiguous; never blindly modify the first match.
         return candidates.singleOrNull()
     }
 
-    private data class Applied(val matched: Set<String>, val attempted: Set<String>)
+    private data class Applied(
+        val matched: Set<String>,
+        val attempted: Set<String>,
+        val alreadyInvisible: Set<String>
+    )
 
     private fun applyState(root: View, result: Result, state: State): Applied {
         if (!isMyPage(result)) {
             restoreAll(state)
-            return Applied(emptySet(), emptySet())
+            return Applied(emptySet(), emptySet(), emptySet())
         }
         val matched = linkedSetOf<String>()
         val attempted = linkedSetOf<String>()
+        val invisible = linkedSetOf<String>()
         for (item in UiMenuCatalog.items) {
             val label = item.label
             val hidden = state.hidden[label]
@@ -278,12 +313,17 @@ object UiScanHook {
             if (hidden != null) state.hidden.remove(label)
             val candidate = safeTab(root, label) ?: continue
             matched.add(label)
-            if (candidate.visibility != View.VISIBLE) continue
+            if (candidate.visibility != View.VISIBLE || !candidate.isShown) {
+                // This can occur when NIU itself or another module hides a parent.
+                // Do not claim that we executed this hide operation.
+                invisible.add(label)
+                continue
+            }
             attempted.add(label)
             state.hidden[label] = candidate to candidate.visibility
             candidate.visibility = View.GONE
         }
-        return Applied(matched, attempted)
+        return Applied(matched, attempted, invisible)
     }
 
     private fun scan(activity: Activity, force: Boolean) {
@@ -322,6 +362,7 @@ object UiScanHook {
                         putExtra("menu_requested", UiMenuCatalog.encoded(state.flags.selected))
                         putExtra("menu_matched", UiMenuCatalog.encoded(applied.matched))
                         putExtra("menu_attempted", UiMenuCatalog.encoded(applied.attempted))
+                        putExtra("menu_invisible", UiMenuCatalog.encoded(applied.alreadyInvisible))
                         putExtra("menu_verified", UiMenuCatalog.encoded(verified))
                     }
                     val opts = BroadcastOptions.makeBasic()
