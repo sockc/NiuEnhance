@@ -1,5 +1,11 @@
 # NiuEnhance
 
+## NiuDash D0.1 · 原厂仪表资源与协议只读验证
+目标：保留 FX 原厂硬件，未来支持原厂素材与自绘组件混用。
+已添加 Windows ADB 采集和 Python APK/HCI 元数据分析脚本，**不改车、不联网、不解包素材**。
+操作见 [验证手册](docs/niudash/VERIFY.md)，结论见 [证据矩阵](docs/niudash/EVIDENCE.md)。
+
+
 ## V0.3.1 — 蓝牙音乐增益对比
 - 在 FX 多媒体蓝牙输出路径上，测试 3 秒 440Hz 信号的三个保守数字幅度：峰值约 -13/-7/-4 dBFS。
 - 新增本地音频文件播放（Android 系统文件选择器 SAF），音效作用于**本 APP 自己的 MediaPlayer 会话**。

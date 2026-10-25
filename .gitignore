@@ -9,3 +9,6 @@
 *.hprof
 *.log
 /captures/
+
+# Local-only phone APKs and confidential Bluetooth logs
+/niudash-private/
